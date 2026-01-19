@@ -162,8 +162,8 @@ Register-ObjectEvent -InputObject (Get-Job) -EventName StateChanged -Action {
     if ($Event.SourceEventArgs.JobStateInfo.State -eq "Completed") {
         Remove-Job $Event.Sender
         $Window.Dispatcher.Invoke([action]{
-            Log "✅ Completed!"
-            Log "📁 Saved to Downloads"
+            Log "Completed!"
+            Log "Saved to Downloads"
             $DownloadBtn.IsEnabled = $true
         })
     }
