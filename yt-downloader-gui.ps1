@@ -39,16 +39,14 @@ $XAML = @"
                      Background="#1E1E1E"
                      Foreground="White"
                      BorderBrush="#333"
-                     Padding="10"
-                     VerticalContentAlignment="Center"/>
+                     Padding="10"/>
 
             <Button x:Name="ClearBtn"
                     Grid.Column="1"
                     Content="X"
                     FontSize="16"
                     Background="#2A2A2A"
-                    Foreground="#FF5252"
-                    BorderBrush="#333"/>
+                    Foreground="#FF5252"/>
         </Grid>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,15">
@@ -90,20 +88,87 @@ $LogBox = $Window.FindName("LogBox")
 $DownloadBtn = $Window.FindName("DownloadBtn")
 
 function Log($msg) {
-    $LogBox.AppendText("$msg`n")
-    $LogBox.ScrollToEnd()
+    $Window.Dispatcher.Invoke([action]{
+        $LogBox.AppendText("$msg`n")
+        $LogBox.ScrollToEnd()
+    })
 }
 
-$ClearBtn.Add_Click({
-    $UrlBox.Clear()
-})
+function Get-CmdPath($name) {
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+
+    $wg = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
+    Get-ChildItem $wg -Recurse -Filter "$name.exe" -ErrorAction SilentlyContinue |
+        Select-Object -First 1 | ForEach-Object { $_.FullName }
+}
+
+$ClearBtn.Add_Click({ $UrlBox.Clear() })
 
 $DownloadBtn.Add_Click({
-    if (-not $UrlBox.Text) {
+
+    $url = $UrlBox.Text.Trim()
+    if (-not $url) {
         Log "❌ Enter a YouTube URL"
         return
     }
-    Log "🚀 Download logic goes here"
+
+    $DownloadBtn.IsEnabled = $false
+    Log "🔍 Checking dependencies..."
+
+    Start-Job -ScriptBlock {
+
+        param($url, $isMP3)
+
+        function Find-Cmd($n) {
+            $c = Get-Command $n -ErrorAction SilentlyContinue
+            if ($c) { return $c.Source }
+            Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter "$n.exe" -ErrorAction SilentlyContinue |
+                Select-Object -First 1 | ForEach-Object { $_.FullName }
+        }
+
+        if (-not (Find-Cmd "yt-dlp")) {
+            winget install --id yt-dlp.yt-dlp -e --source winget
+        }
+        if (-not (Find-Cmd "ffmpeg")) {
+            winget install --id Gyan.FFmpeg -e --source winget
+        }
+
+        $yt = Find-Cmd "yt-dlp"
+        $ff = Find-Cmd "ffmpeg"
+        $ffdir = Split-Path $ff
+        $out = "$env:USERPROFILE\Downloads\%(title)s.%(ext)s"
+
+        if ($isMP3) {
+            & $yt --extract-audio --audio-format mp3 --audio-quality 0 `
+                --embed-metadata --embed-thumbnail --convert-thumbnails jpg `
+                --no-playlist --ffmpeg-location "$ffdir" `
+                --extractor-args "youtube:player_client=android" `
+                -o "$out" "$url"
+        }
+        else {
+            & $yt -f "bv*+ba/b" --merge-output-format mp4 `
+                --embed-metadata --ffmpeg-location "$ffdir" `
+                --extractor-args "youtube:player_client=android" `
+                -o "$out" "$url"
+        }
+
+    } -ArgumentList $url, $MP3.IsChecked | Out-Null
+
+    Log "⬇ Download started..."
 })
 
+Register-ObjectEvent -InputObject (Get-Job) -EventName StateChanged -Action {
+    if ($Event.SourceEventArgs.JobStateInfo.State -eq "Completed") {
+        Remove-Job $Event.Sender
+        $Window.Dispatcher.Invoke([action]{
+            Log "✅ Completed!"
+            Log "📁 Saved to Downloads"
+            $DownloadBtn.IsEnabled = $true
+        })
+    }
+} | Out-Null
+
 $Window.ShowDialog() | Out-Null
+
+
