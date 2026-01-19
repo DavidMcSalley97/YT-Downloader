@@ -80,6 +80,7 @@ $Window = [Windows.Markup.XamlReader]::Load($xmlReader)
 
 $UrlBox = $Window.FindName("UrlBox")
 $MP3 = $Window.FindName("MP3")
+$MP4 = $Window.FindName("MP4")
 $LogBox = $Window.FindName("LogBox")
 $DownloadBtn = $Window.FindName("DownloadBtn")
 $ClearAllBtn = $Window.FindName("ClearAllBtn")
