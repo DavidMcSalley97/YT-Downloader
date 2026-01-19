@@ -2,6 +2,7 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+# GUI
 $XAML = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -27,29 +28,16 @@ $XAML = @"
                    Foreground="#00E5FF"
                    Margin="0,0,0,20"/>
 
-        <Grid Grid.Row="1" Margin="0,0,0,15">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition/>
-                <ColumnDefinition Width="40"/>
-            </Grid.ColumnDefinitions>
+        <TextBox x:Name="UrlBox"
+                 Grid.Row="1"
+                 Height="38"
+                 FontSize="14"
+                 Background="#1E1E1E"
+                 Foreground="White"
+                 BorderBrush="#333"
+                 Padding="10"/>
 
-            <TextBox x:Name="UrlBox"
-                     Height="38"
-                     FontSize="14"
-                     Background="#1E1E1E"
-                     Foreground="White"
-                     BorderBrush="#333"
-                     Padding="10"/>
-
-            <Button x:Name="ClearBtn"
-                    Grid.Column="1"
-                    Content="X"
-                    FontSize="16"
-                    Background="#2A2A2A"
-                    Foreground="#FF5252"/>
-        </Grid>
-
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,15">
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,15,0,15">
             <RadioButton x:Name="MP3" Content="MP3 (Audio)" IsChecked="True" Foreground="White" Margin="0,0,20,0"/>
             <RadioButton x:Name="MP4" Content="MP4 (Video)" Foreground="White"/>
         </StackPanel>
@@ -63,15 +51,25 @@ $XAML = @"
                  IsReadOnly="True"
                  VerticalScrollBarVisibility="Auto"/>
 
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
-            <Button x:Name="DownloadBtn"
-                    Content="Download"
-                    Width="120"
-                    Height="36"
-                    Background="#00E5FF"
-                    Foreground="Black"
-                    FontWeight="Bold"/>
-        </StackPanel>
+<StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+    <Button x:Name="DownloadBtn"
+            Content="Download"
+            Width="120"
+            Height="36"
+            Background="#00E5FF"
+            Foreground="Black"
+            FontWeight="Bold"
+            Margin="0,0,10,0"/>
+    
+    <Button x:Name="ClearAllBtn"
+            Content="Clear All"
+            Width="120"
+            Height="36"
+            Background="#FF5252"
+            Foreground="White"
+            FontWeight="Bold"/>
+</StackPanel>
+
     </Grid>
 </Window>
 "@
@@ -81,93 +79,97 @@ $xmlReader = [System.Xml.XmlReader]::Create($reader)
 $Window = [Windows.Markup.XamlReader]::Load($xmlReader)
 
 $UrlBox = $Window.FindName("UrlBox")
-$ClearBtn = $Window.FindName("ClearBtn")
 $MP3 = $Window.FindName("MP3")
-$MP4 = $Window.FindName("MP4")
 $LogBox = $Window.FindName("LogBox")
 $DownloadBtn = $Window.FindName("DownloadBtn")
-
-function Log($msg) {
+$ClearAllBtn = $Window.FindName("ClearAllBtn")
+$ClearAllBtn.Add_Click({
+    $UrlBox.Clear()
+    $LogBox.Clear()
+    $MP3.IsChecked = $true
+    $MP4.IsChecked = $false
+    Log "Cleared as james requested, ready for new download."
+})
+# logging
+function Log {
+    param($msg)
     $Window.Dispatcher.Invoke([action]{
         $LogBox.AppendText("$msg`n")
         $LogBox.ScrollToEnd()
     })
 }
 
-function Get-CmdPath($name) {
+# find binary
+function Find-Binary($name) {
     $cmd = Get-Command $name -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
 
-    $wg = "$env:LOCALAPPDATA\Microsoft\WinGet\Packages"
-    Get-ChildItem $wg -Recurse -Filter "$name.exe" -ErrorAction SilentlyContinue |
-        Select-Object -First 1 | ForEach-Object { $_.FullName }
+    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" |
+        Get-ChildItem -Recurse -Filter "$name.exe" -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty FullName
 }
 
-$ClearBtn.Add_Click({ $UrlBox.Clear() })
-
+# download handler
 $DownloadBtn.Add_Click({
 
     $url = $UrlBox.Text.Trim()
-    if (-not $url) {
-        Log "❌ Enter a YouTube URL"
-        return
-    }
+    if (-not $url) { Log "No URL provided"; return }
 
     $DownloadBtn.IsEnabled = $false
-    Log "🔍 Checking dependencies..."
 
-    Start-Job -ScriptBlock {
+    $yt = Find-Binary "yt-dlp"
+    $ff = Find-Binary "ffmpeg"
 
-        param($url, $isMP3)
+    if (-not $yt) { Log "yt-dlp NOT found. Install it first."; $DownloadBtn.IsEnabled = $true; return }
+    if (-not $ff) { Log "ffmpeg NOT found. Install it first."; $DownloadBtn.IsEnabled = $true; return }
 
-        function Find-Cmd($n) {
-            $c = Get-Command $n -ErrorAction SilentlyContinue
-            if ($c) { return $c.Source }
-            Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages" -Recurse -Filter "$n.exe" -ErrorAction SilentlyContinue |
-                Select-Object -First 1 | ForEach-Object { $_.FullName }
-        }
+    $downloads = Join-Path $env:USERPROFILE "Downloads"
 
-        if (-not (Find-Cmd "yt-dlp")) {
-            winget install --id yt-dlp.yt-dlp -e --source winget
-        }
-        if (-not (Find-Cmd "ffmpeg")) {
-            winget install --id Gyan.FFmpeg -e --source winget
-        }
+    $args = @(
+        "--no-playlist"
+        "--paths", "home:$downloads"
+        "--restrict-filenames"
+        "--embed-metadata"
+        "--extractor-args", "youtube:player_client=android,web"
+    )
 
-        $yt = Find-Cmd "yt-dlp"
-        $ff = Find-Cmd "ffmpeg"
-        $ffdir = Split-Path $ff
-        $out = "$env:USERPROFILE\Downloads\%(title)s.%(ext)s"
-
-        if ($isMP3) {
-            & $yt --extract-audio --audio-format mp3 --audio-quality 0 `
-                --embed-metadata --embed-thumbnail --convert-thumbnails jpg `
-                --no-playlist --ffmpeg-location "$ffdir" `
-                --extractor-args "youtube:player_client=android" `
-                -o "$out" "$url"
-        }
-        else {
-            & $yt -f "bv*+ba/b" --merge-output-format mp4 `
-                --embed-metadata --ffmpeg-location "$ffdir" `
-                --extractor-args "youtube:player_client=android" `
-                -o "$out" "$url"
-        }
-
-    } -ArgumentList $url, $MP3.IsChecked | Out-Null
-
-    Log "⬇ Download started..."
-})
-
-Register-ObjectEvent -InputObject (Get-Job) -EventName StateChanged -Action {
-    if ($Event.SourceEventArgs.JobStateInfo.State -eq "Completed") {
-        Remove-Job $Event.Sender
-        $Window.Dispatcher.Invoke([action]{
-            Log "Completed!"
-            Log "Saved to Downloads"
-            $DownloadBtn.IsEnabled = $true
-        })
+    if ($MP3.IsChecked) {
+        $args += @("--extract-audio","--audio-format","mp3","--audio-quality","0")
+    } else {
+        $args += @("-f","bv*+ba/b","--merge-output-format","mp4")
     }
-} | Out-Null
+
+    $args += $url
+
+    Log "Downloading..."
+    Log "Output folder: $downloads"
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $yt
+    $psi.Arguments = ($args -join " ")
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo = $psi
+    $p.Start() | Out-Null
+
+    while (-not $p.HasExited) {
+        if (-not $p.StandardOutput.EndOfStream) {
+            Log ($p.StandardOutput.ReadLine())
+        }
+        Start-Sleep -Milliseconds 50
+    }
+
+    while (-not $p.StandardError.EndOfStream) {
+        Log ($p.StandardError.ReadLine())
+    }
+
+    Log "Done."
+    $DownloadBtn.IsEnabled = $true
+})
 
 $Window.ShowDialog() | Out-Null
 
