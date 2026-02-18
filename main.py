@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import re
 import uuid
 import shutil
@@ -109,3 +110,21 @@ async def progress_ws(websocket: WebSocket, job_id: str):
 def download_file(filename: str):
     file_path = DOWNLOAD_DIR / filename
     return FileResponse(file_path)
+
+
+@app.get("/speed")
+def speed_test_placeholder():
+    return {
+        "download": "n/a",
+        "upload": "n/a",
+        "ping": "n/a",
+        "note": "Speed test endpoint is a placeholder."
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("main:app", host=host, port=port, reload=False)

@@ -10,6 +10,7 @@ interface Props {
   setDeletedUrls: (set: Set<string>) => void;
   outputDir: string | null;
   setOutputDir: (dir: string) => void;
+  backendUrl: string;
 }
 
 export default function Controls({
@@ -18,6 +19,7 @@ export default function Controls({
   setDeletedUrls,
   outputDir,
   setOutputDir,
+  backendUrl,
 }: Props) {
   const [url, setUrl] = useState("");
   const [mode, setMode] = useState<"audio" | "video">("audio");
@@ -27,13 +29,15 @@ export default function Controls({
   const startDownload = async () => {
     if (!url) return;
     try {
-      const res = await axios.post("http://localhost:8000/download", {
+      const downloadUrl = `${backendUrl}/download`;
+      const res = await axios.post(downloadUrl, {
         url,
         mode,
         quality,
       });
 
-      const ws = new WebSocket(`ws://localhost:8000/ws/${res.data.job_id}`);
+      const wsBaseUrl = backendUrl.replace(/^http/, "ws");
+      const ws = new WebSocket(`${wsBaseUrl}/ws/${res.data.job_id}`);
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
         if (data.progress !== undefined) setProgress(data.progress);

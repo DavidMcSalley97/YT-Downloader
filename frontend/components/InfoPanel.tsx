@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 
-export default function InfoPanel() {
+interface Props {
+  backendUrl: string;
+}
+
+export default function InfoPanel({ backendUrl }: Props) {
   const [thumbnail, setThumbnail] = useState<string | null>(null);
   const [metadata, setMetadata] = useState("Awaiting selection…");
   const [netStatus, setNetStatus] = useState("Not tested");
 
   const testSpeed = async () => {
     setNetStatus("Testing…");
-    const res = await fetch("http://localhost:8000/speed"); // you’d need a backend endpoint
+    const res = await fetch(`${backendUrl}/speed`); // you’d need a backend endpoint
     const data = await res.json();
     setNetStatus(`${data.download} Mbps | ${data.upload} Mbps | ${data.ping} ms`);
   };
